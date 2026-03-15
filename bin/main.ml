@@ -5,7 +5,7 @@ let today = Calendar.now ()
 
 let () =
   print_endline "Supported hl langs:";
-  Hilite.Md.langs |> String.concat ", " |> print_endline;
+  Hilite.langs |> String.concat ", " |> print_endline;
   print_endline ""
 
 type meta = {
@@ -13,7 +13,7 @@ type meta = {
   name : string;
   date : Date.t option;
   content : unit -> [ `Text of string | `MDHtml of string | `Xml of Cow.Xml.t ];
-  template : [ `Default | `Fname of string ];
+  template : [ `Default | `Fname of string | `Rss ];
   toc : string option;
 }
 
@@ -22,33 +22,67 @@ module M = Map.Make (String)
 let url = ref "http://localhost:8000/"
 let site_title = ref "site title"
 
+let body m =
+  m.content () |> function
+  | `Text s -> s
+  | `Xml s -> Cow.Xml.to_string s
+  | `MDHtml s -> s
+
+let date m =
+  Option.map (fun d -> CalendarLib.Printer.Date.sprint "%d %B %Y" d) m.date
+  |> function
+  | Some x -> x
+  | None -> ""
+
+let to_item m =
+  let pubdate : Ptime.t option =
+    let d = m.date |> Option.map Date.to_unixfloat in
+    Option.bind d Ptime.of_float_s
+  in
+  let link =
+    Uri.canonicalize
+    @@ Uri.of_string (Filename.concat !url (m.filename ^ ".html"))
+  in
+  let guid = Rss.Guid_permalink link in
+  Rss.item ~title:m.name ~data:body ?pubdate ~link ~guid ()
+
+let gen_rss (m : meta) (ms : meta list) =
+  let default_date x =
+    match x with Some d -> d | None -> parsedate "1970-01-01"
+  in
+  let link =
+    Uri.canonicalize @@ Uri.of_string
+    @@ Filename.concat !url (m.filename ^ ".xml")
+  in
+  let met =
+    ms
+    |> List.filter (fun m -> not (m.template = `Rss))
+    |> List.sort (fun mi mj ->
+        Calendar.Date.compare (default_date mi.date) (default_date mj.date))
+    |> List.rev |> List.map to_item
+  in
+  let now = today |> CalendarLib.Printer.Calendar.sprint "%c" in
+
+  let channel = Rss.channel ~title:m.name ~desc:(body m) ~link met in
+  let b = Buffer.create 1024 in
+  let f = Format.formatter_of_buffer b in
+  Rss.print_channel f channel;
+  Buffer.to_bytes b |> Bytes.to_string
+
 let inject_template (temp : string) (m : meta) =
   let tag_re =
     Str.regexp
-      {|%%\(CONTENTBODY\|CONTENTDATE\|CONTENTTITLE\|URL\|SITETITLE\|TOC\|GENTIME\)%%|}
-  in
-  let body =
-    lazy
-      ( m.content () |> function
-        | `Text s -> s
-        | `Xml s -> Cow.Xml.to_string s
-        | `MDHtml s -> s )
-  in
-  let date =
-    lazy
-      ( Option.map (fun d -> CalendarLib.Printer.Date.sprint "%d %B %Y" d) m.date
-      |> function
-        | Some x -> x
-        | None -> "" )
+      {|%%\(CONTENTBODY\|CONTENTDATE\|CONTENTTITLE\|URL\|SITETITLE\|TOC\|GENTIME\|SITEURL\)%%|}
   in
   Str.global_substitute tag_re
     (fun x ->
       match Str.matched_string x with
-      | "%%URL%%" -> !url ^ "/" ^ m.filename ^ ".html"
+      | "%%SITEURL%%" -> !url
+      | "%%URL%%" -> Filename.concat !url (m.filename ^ ".html")
       | "%%TOC%%" -> ( match m.toc with Some x -> x | None -> "")
       | "%%GENTIME%%" -> today |> CalendarLib.Printer.Calendar.sprint "%c"
-      | "%%CONTENTBODY%%" -> Lazy.force body
-      | "%%CONTENTDATE%%" -> Lazy.force date
+      | "%%CONTENTBODY%%" -> body m
+      | "%%CONTENTDATE%%" -> date m
       | "%%CONTENTTITLE%%" -> m.name
       | "%%SITETITLE%%" -> !site_title
       | x -> failwith x)
@@ -84,9 +118,10 @@ let sub_list (temp : string) (ms : meta list M.t) : string =
         in
         let met =
           met
+          |> List.filter (fun m -> not (m.template = `Rss))
           |> List.sort (fun mi mj ->
-                 Calendar.Date.compare (default_date mi.date)
-                   (default_date mj.date))
+              Calendar.Date.compare (default_date mi.date)
+                (default_date mj.date))
           |> List.rev
         in
         unpack (acc ^ make_list_item t met) rest
@@ -131,8 +166,8 @@ let parse_m fs f =
     | _ -> None
   in
   let do_md str =
-    Cmarkit.Doc.of_string ~strict:false str
-    |> Hilite.Md.transform
+    Cmarkit.Doc.of_string ~heading_auto_ids:true ~strict:false str
+    |> Hilite_markdown.transform
     |> Cmarkit_html.of_doc ~safe:false
   in
   let content () =
@@ -144,7 +179,10 @@ let parse_m fs f =
   in
   let filename = drop_exn fs in
   let template =
-    M.find_opt "template" m |> function Some x -> `Fname x | None -> `Default
+    M.find_opt "template" m |> function
+    | Some "rss" -> `Rss
+    | Some x -> `Fname x
+    | None -> `Default
   in
   {
     name = M.find "title" m;
@@ -183,7 +221,7 @@ let list_directory dir =
   if Sys.file_exists dir && Sys.is_directory dir then
     let file_array = Sys.readdir dir in
     file_array |> Array.to_list
-    |> List.filter (fun f -> Sys.is_regular_file (dir ^ "/" ^ f))
+    |> List.filter (fun f -> Sys.is_regular_file (Filename.concat dir f))
     (*|> List.filter (compose not (String.starts_with ~prefix:".")) *)
   else []
 
@@ -211,18 +249,19 @@ let speclist =
 let load_templs dir =
   list_directory dir
   |> List.map (fun f ->
-         let fn = dir ^ "/" ^ f in
-         let r = open_in fn in
-         let t = read_file r in
-         close_in r;
-         (f, t))
+      let fn = Filename.concat dir f in
+      let r = open_in fn in
+      let t = read_file r in
+      close_in r;
+      (f, t))
   |> M.of_list
 
 let rec list_directory_rec_build dir : (string * meta list) list =
   print_endline ("dir " ^ dir);
   if Sys.file_exists dir && Sys.is_directory dir then (
     let file_array =
-      Sys.readdir dir |> Array.to_list |> List.map (fun i -> dir ^ "/" ^ i)
+      Sys.readdir dir |> Array.to_list
+      |> List.map (fun i -> Filename.concat dir i)
     in
     List.iter print_endline file_array;
     let files =
@@ -263,6 +302,10 @@ let process_dir temps indir outdir =
               let s = sub_list t bm in
               let s = inject_template s m in
               (`Text s, m.filename ^ ".html")
+          | `Rss ->
+              let u = Filename.dirname m.filename in
+              let s = gen_rss m (M.find u bm) in
+              (`Text s, m.filename ^ ".xml")
         in
         (m, fname, templ))
       l
@@ -273,17 +316,17 @@ let process_dir temps indir outdir =
     if not (Sys.file_exists d) then Sys.mkdir d 0o740;
     templated ms
     |> List.iter (function m, fname, c ->
-           let cont =
-             match c with
-             | `Text t -> t
-             | `Xml x -> Cow.Xml.to_string x
-             | `MDHtml x -> x
-           in
-           print_endline "output";
-           print_endline fname;
-           let os = open_out fname in
-           output_string os cont;
-           close_out os)
+        let cont =
+          match c with
+          | `Text t -> t
+          | `Xml x -> Cow.Xml.to_string x
+          | `MDHtml x -> x
+        in
+        print_endline "output";
+        print_endline fname;
+        let os = open_out fname in
+        output_string os cont;
+        close_out os)
   in
   List.iter writeout built
 
