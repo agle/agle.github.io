@@ -1,11 +1,7 @@
 name: docs
 
 on:
-  pull_request:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions: read-all
 

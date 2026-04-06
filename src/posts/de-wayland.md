@@ -68,6 +68,3 @@ willing to go to the effort, which is a high bar for me.
 
 
 Update: labwc is not the primary supported window manager, the experience under KWin may be better.
-
-
----
