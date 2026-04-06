@@ -273,6 +273,7 @@ let rmdirrec odir =
 
 let process_dir cfg temps indir outdir =
   rmdirrec outdir;
+  if not (Sys.file_exists outdir) then Sys.mkdir outdir 0o740;
   let cd = Sys.getcwd () in
   let temps = load_templs temps in
   M.iter (fun i _ -> print_endline ("template " ^ i)) temps;

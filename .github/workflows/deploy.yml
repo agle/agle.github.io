@@ -1,0 +1,61 @@
+name: docs
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions: read-all
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-site:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tree
+        uses: actions/checkout@v4
+
+      - name: Set-up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.4.0
+
+      - name: Install dependencies
+        run: |
+          opam option --global 'archive-mirrors+="https://opam.ocaml.org/cache"'
+          opam install . --deps-only
+
+      - name: Build site
+        run: |
+          opam exec --  dune exec -- sb --url "${{ steps.deployment.outputs.page_url }}"  --title agle -o public
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy-odoc:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
+
+    needs: build-site
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    permissions:
+      id-token: write
+      pages: write
+
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
