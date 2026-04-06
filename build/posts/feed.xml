@@ -1,4 +1,0 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<rss version="2.0"><channel><title>Posts</title><link>http://localhost:8000/posts/feed.xml</link><description>
-blog posts
-</description><item><title>Portégé</title><link>http://localhost:8000/posts/dynabook.html</link><pubDate>2026-03-25 00:00:00 +00:00</pubDate><guid isPermaLink="true">http://localhost:8000/posts/dynabook.html</guid></item><item><title>OCaml for Scripting (simply)</title><link>http://localhost:8000/posts/ocaml-scripting.html</link><pubDate>2026-03-20 00:00:00 +00:00</pubDate><guid isPermaLink="true">http://localhost:8000/posts/ocaml-scripting.html</guid></item><item><title>LXQt</title><link>http://localhost:8000/posts/de-wayland.html</link><pubDate>2026-03-18 00:00:00 +00:00</pubDate><guid isPermaLink="true">http://localhost:8000/posts/de-wayland.html</guid></item></channel></rss>
