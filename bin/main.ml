@@ -424,7 +424,7 @@ let () =
         "set site name title, default: " ^ !site_title );
     ]
   in
-  let cfg : site_cfg = { url = !url; title = !site_title } in
   Arg.parse speclist (fun f -> ()) usage_msg;
+  let cfg : site_cfg = { url = !url; title = !site_title } in
   !preview |> Option.iter (fun p -> httpd cfg p ());
   process_dir cfg !templates_dir !source_dir !build_dir
