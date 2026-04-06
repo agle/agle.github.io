@@ -5,4 +5,4 @@
  (flags
   (:standard -w -26 -w -27 -w -32))
 
- (libraries sb calendar cow str omd cmarkit hilite.markdown rss))
+ (libraries calendar cow str omd cmarkit hilite.markdown rss containers inotify tiny_httpd))

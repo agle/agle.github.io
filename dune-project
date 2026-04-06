@@ -24,7 +24,12 @@
    cow
    calendar
    cmarkit
-   hilite)
+   hilite
+   rss
+   containers
+   inotify
+   tiny_httpd
+   )
  (tags
   ("add topics" "to describe" your project)))
 

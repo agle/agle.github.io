@@ -16,6 +16,10 @@ depends: [
   "calendar"
   "cmarkit"
   "hilite"
+  "rss"
+  "containers"
+  "inotify"
+  "tiny_httpd"
   "odoc" {with-doc}
 ]
 build: [
