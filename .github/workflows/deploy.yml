@@ -34,7 +34,7 @@ jobs:
 
       - name: Build site
         run: |
-          opam exec --  dune exec -- sb --url "${{ steps.deployment.outputs.page_url }}"  --title agle -o public
+          opam exec --  dune exec -- sb --url "https://agle.github.io"  --title agle -o public
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
