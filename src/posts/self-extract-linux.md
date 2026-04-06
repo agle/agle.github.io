@@ -51,5 +51,6 @@ you should ensure your software licences permit you to vendor these shared
 objects. However its Good Enough(R), as long as your target system has a similar
 enough glibc.
 
-Ignoring the library vendoring use-case, this is a neat way to distribute
-multiple files as a bundle.
+Nevertheless this mostly solves problem of distributing Linux programs,
+(e.g. OCaml programs using depexts), without delving into nightmares of
+flatpak, appimage, dev, rpm, containers. 

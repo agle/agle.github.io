@@ -14,5 +14,6 @@ cp _build/default/bin/main.exe binout/
 
 echo "#!/usr/bin/env bash" > binout/start.sh
 echo "LD_LIBRARY_PATH=lib ./main.exe" >> binout/start.sh
+chmod +x binout/start.sh
 
 bash makeself-2.7.1/makeself.sh binout sg "site generator" ./start.sh
