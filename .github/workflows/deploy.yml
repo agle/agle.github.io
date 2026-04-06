@@ -38,14 +38,9 @@ jobs:
         run: |
           bash scripts/mkrel.sh
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
-
       - uses: actions/upload-artifact@v4
         with:
-          name: sg-latest
+          name: sg-main
           path: sg
 
 
