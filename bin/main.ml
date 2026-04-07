@@ -16,7 +16,6 @@ type meta = {
   date : Date.t option;
   content : unit -> [ `Text of string | `MDHtml of string | `Xml of Cow.Xml.t ];
   template : [ `Default | `Fname of string | `Rss ];
-  toc : string option;
   extra_frontmatter : (string * string) list;
 }
 
@@ -38,11 +37,22 @@ let lua_push_table st m =
     m;
   ()
 
+let lua_push_array st m =
+  let open Lua_api in
+  Lua.newtable st;
+  List.iteri
+    (fun i push_fn ->
+      Lua.pushinteger st (i + 1);
+      push_fn st;
+      Lua.settable st (-3))
+    m;
+  ()
+
 module M = Map.Make (String)
 
 type site_cfg = { url : string; title : string }
 
-let meta_to_table st cfg ?content m =
+let lua_push_page_meta st cfg m =
   let d =
     Option.(
       map
@@ -50,11 +60,8 @@ let meta_to_table st cfg ?content m =
         m.date
       |> to_list)
   in
-  let content =
-    content |> Option.map (fun k -> ("page_content", k)) |> Option.to_list
-  in
   let tbl_data =
-    content @ d
+    d
     @ [
         ("filename", `String m.filename);
         ("title", `String m.name);
@@ -65,8 +72,9 @@ let meta_to_table st cfg ?content m =
       ]
     @ List.map (fun (k, v) -> ("fm_" ^ k, `String v)) m.extra_frontmatter
   in
-  lua_push_table st tbl_data;
-  Lua_api.Lua.setglobal st "page";
+  lua_push_table st tbl_data
+
+let lua_push_site_meta st cfg m =
   let site_data =
     [
       ("url", `String cfg.url);
@@ -74,7 +82,12 @@ let meta_to_table st cfg ?content m =
       ("templates", `String !templates_dir);
     ]
   in
-  lua_push_table st site_data;
+  lua_push_table st site_data
+
+let lua_set_meta_globals st cfg m =
+  lua_push_page_meta st cfg m;
+  Lua_api.Lua.setglobal st "page";
+  lua_push_site_meta st cfg m;
   Lua_api.Lua.setglobal st "site"
 
 let body m =
@@ -125,28 +138,6 @@ let gen_rss cfg (m : meta) (ms : meta list) =
   Rss.print_channel f channel;
   Buffer.to_bytes b |> Bytes.to_string
 
-let inject_template cfg (temp : string) (m : meta) =
-  let tag_re =
-    Str.regexp
-      {|%%\(CONTENTBODY\|CONTENTDATE\|CONTENTTITLE\|URL\|SITETITLE\|TOC\|GENTIME\|SITEURL\)%%|}
-  in
-  Str.global_substitute tag_re
-    (fun x ->
-      match Str.matched_string x with
-      | "%%SITEURL%%" -> cfg.url
-      | "%%URL%%" -> Filename.concat cfg.url (m.filename ^ ".html")
-      | "%%TOC%%" -> ( match m.toc with Some x -> x | None -> "")
-      | "%%GENTIME%%" -> today |> CalendarLib.Printer.Calendar.sprint "%c"
-      | "%%CONTENTBODY%%" -> body m
-      | "%%CONTENTDATE%%" -> date m
-      | "%%CONTENTTITLE%%" -> m.name
-      | "%%SITETITLE%%" -> cfg.title
-      | x -> failwith x)
-    temp
-
-let make_list_item cfg item_template (ms : meta list) =
-  List.map (inject_template cfg item_template) ms |> String.concat "\n"
-
 let read_file ic =
   let res = ref "" in
   let rec read (c : in_channel) : string =
@@ -177,7 +168,42 @@ let lua_register_page_content st meta =
   in
   Lua.register st "page_content" f
 
-let luify cfg (temp : string) (met : meta) : string =
+let lua_register_metas_for_dir st cfg ms =
+  let open Lua_api in
+  let f st =
+    let folder = LuaL.checkstring st (-1) in
+    Lua.pop st 1;
+    let met = M.find_opt folder ms in
+
+    print_endline @@ "read dir dir" ^ folder;
+    print_endline "pages";
+    print_endline
+      (M.to_list ms |> List.map (fun (k, _) -> k) |> String.concat ",");
+    match met with
+    | Some met ->
+        let push_meta m st = lua_push_page_meta st cfg m in
+
+        let default_date x =
+          match x with Some d -> d | None -> parsedate "1970-01-01"
+        in
+        let met =
+          met
+          |> List.filter (fun m -> not (Equal.poly m.template `Rss))
+          |> List.sort (fun mi mj ->
+              Calendar.Date.compare (default_date mi.date)
+                (default_date mj.date))
+          |> List.rev
+        in
+        let values = List.map push_meta met in
+        lua_push_array st values;
+        1
+    | _ ->
+        Lua.pushstring st "error";
+        1
+  in
+  Lua.register st "child_pages" f
+
+let luify cfg (temp : string) (met : meta) metas : string =
   let open Lua_api in
   let st = LuaL.newstate () in
   LuaL.openlibs st;
@@ -189,8 +215,9 @@ let luify cfg (temp : string) (met : meta) : string =
     match xs with
     | Str.Delim bg :: Str.Text inner_text :: rest
       when Str.string_match bgdeli bg 0 ->
-        let m = meta_to_table st cfg met in
+        let m = lua_set_meta_globals st cfg met in
         lua_register_page_content st met;
+        lua_register_metas_for_dir st cfg metas;
         let buf = lua_register_printer st in
         (if not @@ String.is_empty !lua_prelude then
            let r = LuaL.dofile st !lua_prelude in
@@ -203,37 +230,6 @@ let luify cfg (temp : string) (met : meta) : string =
     | Str.Text b :: rest -> unpack (acc ^ b) rest
     | [] -> acc
     | Str.Delim "}%" :: rest -> unpack acc rest
-    | Str.Delim x :: _ -> failwith ("unexpec " ^ x)
-  in
-  unpack "" n
-
-let sub_list cfg (temp : string) (ms : meta list M.t) : string =
-  let delim = Str.regexp {|%%BEGINLIST%%\([^%]+\)%%\|%%ENDLIST%%|} in
-  let bgdeli = Str.regexp {|%%BEGINLIST%%\([^%]+\)%%|} in
-  let n = Str.full_split delim temp in
-
-  let rec unpack acc xs =
-    match xs with
-    | Str.Delim bg :: Str.Text t :: rest when Str.string_match bgdeli bg 0 ->
-        let r = Str.search_forward bgdeli bg 0 in
-        let folder = "./" ^ Str.matched_group 1 bg in
-        print_endline folder;
-        let met = M.find folder ms in
-        let default_date x =
-          match x with Some d -> d | None -> parsedate "1970-01-01"
-        in
-        let met =
-          met
-          |> List.filter (fun m -> not (Equal.poly m.template `Rss))
-          |> List.sort (fun mi mj ->
-              Calendar.Date.compare (default_date mi.date)
-                (default_date mj.date))
-          |> List.rev
-        in
-        unpack (acc ^ make_list_item cfg t met) rest
-    | Str.Text b :: rest -> unpack (acc ^ b) rest
-    | [] -> acc
-    | Str.Delim "%%ENDLIST%%" :: rest -> unpack acc rest
     | Str.Delim x :: _ -> failwith ("unexpec " ^ x)
   in
   unpack "" n
@@ -270,11 +266,6 @@ let parse_m fs f =
   let m = List.map separate ls |> M.of_list in
   let content = read_file f in
   close_in f;
-  let toc =
-    match extension fs with
-    | "md" -> Some (Omd.toc ~depth:8 (Omd.of_string content) |> Omd.to_html)
-    | _ -> None
-  in
   let do_md str =
     Cmarkit.Doc.of_string ~heading_auto_ids:true ~strict:false str
     |> Hilite_markdown.transform
@@ -307,7 +298,6 @@ let parse_m fs f =
     content;
     template;
     filename;
-    toc;
     extra_frontmatter;
   }
 
@@ -332,7 +322,6 @@ let build fs =
       content;
       date = None;
       template = `Default;
-      toc = None;
       extra_frontmatter = [];
     })
 
@@ -406,10 +395,9 @@ let process_dir cfg temps indir outdir =
           | `Default -> (m.content (), m.filename)
           | `Fname f ->
               let t = M.find f temps in
-              let s = sub_list cfg t bm in
-              let s = luify cfg s m in
+              let s = luify cfg t m bm in
               (* run twice as hack for templated inclusions *)
-              let s = luify cfg s m in
+              let s = luify cfg s m bm in
               (`Text s, m.filename ^ ".html")
           | `Rss ->
               let u = Filename.dirname m.filename in
