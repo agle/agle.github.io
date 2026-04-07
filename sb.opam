@@ -20,6 +20,7 @@ depends: [
   "containers"
   "inotify"
   "tiny_httpd"
+  "ocaml-lua"
   "odoc" {with-doc}
 ]
 build: [

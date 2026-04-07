@@ -5,7 +5,8 @@
   <meta http-equiv="content-type" content="text/html; charset=UTF-8">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>%%SITETITLE%%/%%CONTENTTITLE%%</title>
+
+  <title>%{print(site.title)}%/%{print(page.title)}%</title>
 
 <link rel="stylesheet" href="/style.css">
 </head>
@@ -14,12 +15,9 @@
 
 <div id="container">
 
-    <h1>%%CONTENTTITLE%%</h1>
-<a href="%%SITEURL%%">home</a> | <a href="/blog.html">blog</a>
+    %{include_file("header.html")}%
 
-
-    %%CONTENTBODY%%
-
+    %{print(page_content())}%
 
     <h3>posts <a href="posts/feed.xml">[rss]</a></h3>
         <ul style="list-style-type: none">
@@ -32,8 +30,6 @@
             </li> 
             %%ENDLIST%%
         </ul>
-
-
 
 
             </div>

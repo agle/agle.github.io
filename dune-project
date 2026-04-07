@@ -29,6 +29,7 @@
    containers
    inotify
    tiny_httpd
+   ocaml-lua
    )
  (tags
   ("add topics" "to describe" your project)))

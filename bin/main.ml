@@ -1,5 +1,6 @@
 open CalendarLib
 open Containers
+open Fun
 
 let parsedate d = CalendarLib.Printer.Date.from_fstring "%F" d
 let today = Calendar.now ()
@@ -16,11 +17,65 @@ type meta = {
   content : unit -> [ `Text of string | `MDHtml of string | `Xml of Cow.Xml.t ];
   template : [ `Default | `Fname of string | `Rss ];
   toc : string option;
+  extra_frontmatter : (string * string) list;
 }
+
+let lua_prelude = ref ""
+let templates_dir = ref "templates"
+let source_dir = ref "src"
+let build_dir = ref "build"
+
+let lua_push_table st m =
+  let open Lua_api in
+  Lua.newtable st;
+  List.iter
+    (fun (k, v) ->
+      (match v with
+      | `String v -> Lua.pushstring st v
+      | `Int i -> Lua.pushinteger st i
+      | `Bool i -> Lua.pushboolean st i);
+      Lua.setfield st (-2) k)
+    m;
+  ()
 
 module M = Map.Make (String)
 
 type site_cfg = { url : string; title : string }
+
+let meta_to_table st cfg ?content m =
+  let d =
+    Option.(
+      map
+        (Date.to_unixfloat %> Int.of_float %> fun x -> ("date", `Int x))
+        m.date
+      |> to_list)
+  in
+  let content =
+    content |> Option.map (fun k -> ("page_content", k)) |> Option.to_list
+  in
+  let tbl_data =
+    content @ d
+    @ [
+        ("filename", `String m.filename);
+        ("title", `String m.name);
+        ( "url",
+          `String
+            (Filename.concat cfg.url (m.filename ^ ".html")
+            |> Uri.of_string |> Uri.canonicalize |> Uri.to_string) );
+      ]
+    @ List.map (fun (k, v) -> ("fm_" ^ k, `String v)) m.extra_frontmatter
+  in
+  lua_push_table st tbl_data;
+  Lua_api.Lua.setglobal st "page";
+  let site_data =
+    [
+      ("url", `String cfg.url);
+      ("title", `String cfg.title);
+      ("templates", `String !templates_dir);
+    ]
+  in
+  lua_push_table st site_data;
+  Lua_api.Lua.setglobal st "site"
 
 let body m =
   m.content () |> function
@@ -101,6 +156,56 @@ let read_file ic =
     with End_of_file -> !res
   in
   read ic
+
+let lua_register_printer st =
+  let open Lua_api in
+  let b = Buffer.create 1024 in
+  let f s =
+    let s = LuaL.checkstring st (-1) in
+    Lua.pop st 1;
+    Buffer.add_string b s;
+    0
+  in
+  Lua.register st "print" f;
+  b
+
+let lua_register_page_content st meta =
+  let open Lua_api in
+  let f st =
+    Lua.pushstring st (body meta);
+    1
+  in
+  Lua.register st "page_content" f
+
+let luify cfg (temp : string) (met : meta) : string =
+  let open Lua_api in
+  let st = LuaL.newstate () in
+  LuaL.openlibs st;
+  let delim = Str.regexp {|%{\|\}%|} in
+  let bgdeli = Str.regexp {|%\{|} in
+  let n = Str.full_split delim temp in
+
+  let rec unpack acc xs =
+    match xs with
+    | Str.Delim bg :: Str.Text inner_text :: rest
+      when Str.string_match bgdeli bg 0 ->
+        let m = meta_to_table st cfg met in
+        lua_register_page_content st met;
+        let buf = lua_register_printer st in
+        (if not @@ String.is_empty !lua_prelude then
+           let r = LuaL.dofile st !lua_prelude in
+           if not r then print_endline "WARN: error in lua prelude.");
+        let r = LuaL.dostring st inner_text in
+        if not r then
+          print_endline ("WARN: Lua error in " ^ met.filename ^ ":" ^ inner_text);
+        let s = Buffer.to_bytes buf |> Bytes.to_string in
+        unpack (acc ^ s) rest
+    | Str.Text b :: rest -> unpack (acc ^ b) rest
+    | [] -> acc
+    | Str.Delim "}%" :: rest -> unpack acc rest
+    | Str.Delim x :: _ -> failwith ("unexpec " ^ x)
+  in
+  unpack "" n
 
 let sub_list cfg (temp : string) (ms : meta list M.t) : string =
   let delim = Str.regexp {|%%BEGINLIST%%\([^%]+\)%%\|%%ENDLIST%%|} in
@@ -189,6 +294,13 @@ let parse_m fs f =
     | Some x -> `Fname x
     | None -> `Default
   in
+  let extra_frontmatter =
+    M.to_list m
+    |> List.filter (function
+      | "date", b -> false
+      | "title", b -> false
+      | _ -> true)
+  in
   {
     name = M.find "title" m;
     date = M.find_opt "date" m |> Option.map parsedate;
@@ -196,6 +308,7 @@ let parse_m fs f =
     template;
     filename;
     toc;
+    extra_frontmatter;
   }
 
 let build fs =
@@ -220,6 +333,7 @@ let build fs =
       date = None;
       template = `Default;
       toc = None;
+      extra_frontmatter = [];
     })
 
 let list_directory dir =
@@ -229,10 +343,6 @@ let list_directory dir =
     |> List.filter (fun f -> Sys.is_regular_file (Filename.concat dir f))
     (*|> List.filter (compose not (String.starts_with ~prefix:".")) *)
   else []
-
-let templates_dir = ref "templates"
-let source_dir = ref "src"
-let build_dir = ref "build"
 
 let load_templs dir =
   list_directory dir
@@ -297,7 +407,9 @@ let process_dir cfg temps indir outdir =
           | `Fname f ->
               let t = M.find f temps in
               let s = sub_list cfg t bm in
-              let s = inject_template cfg s m in
+              let s = luify cfg s m in
+              (* run twice as hack for templated inclusions *)
+              let s = luify cfg s m in
               (`Text s, m.filename ^ ".html")
           | `Rss ->
               let u = Filename.dirname m.filename in
@@ -341,31 +453,21 @@ let serve ~config ~timeout (dir : string) addr port j : _ result =
   Tiny_httpd.Dir.add_dir_path ~config ~dir ~prefix:"" server;
   S.run ~after_init server
 
-let poll_dir dir callback =
+let poll_dir dirs callback =
   let selectors =
     Inotify.[ S_Modify; S_Delete; S_Move; S_Create; S_Close_write ]
   in
   let p = Inotify.create () in
-  CCIO.File.walk_l dir
-  |> List.iter (function
-    | `File, e -> ignore @@ Inotify.add_watch p e selectors
-    | `Dir, d -> ignore @@ Inotify.add_watch p d selectors);
+  dirs
+  |> List.iter (fun dir ->
+      CCIO.File.walk_l dir
+      |> List.iter (function
+        | `File, e -> ignore @@ Inotify.add_watch p e selectors
+        | `Dir, d -> ignore @@ Inotify.add_watch p d selectors));
   let rec update () : unit =
-    let ev = Inotify.read p in
+    (* block until subscribed event *)
+    let _ = Inotify.read p in
     let do_update = true in
-    ev
-    |> List.iter (fun ((watch, ek, c, path) : Inotify.event) ->
-        List.map
-          (function
-            | Inotify.Create ->
-                Option.iter
-                  (fun e -> ignore @@ Inotify.add_watch p e selectors)
-                  path
-            | Inotify.Delete -> Inotify.rm_watch p watch
-            | _ -> ())
-          ek
-        |> ignore;
-        ());
     if do_update then callback ();
     update ()
   in
@@ -393,7 +495,9 @@ let httpd site_cfg port () =
       ()
   in
   let poll_thread =
-    Thread.create (fun () -> poll_dir !source_dir callback) ()
+    Thread.create
+      (fun () -> poll_dir [ !source_dir; !templates_dir ] callback)
+      ()
   in
   Thread.join serve_thread;
   Thread.join poll_thread;
@@ -416,6 +520,9 @@ let () =
         Arg.Set_string templates_dir,
         "set templates directory, default: " ^ !templates_dir );
       ("--url", Arg.Set_string url, "set site public url, default: " ^ !url);
+      ( "--prelude",
+        Arg.Set_string lua_prelude,
+        "prelude file for lua-based templater, default: nil" );
       ( "--preview",
         Arg.String (fun (u : string) -> preview := Some u),
         "preview site port, default: disabled" );
@@ -425,6 +532,10 @@ let () =
     ]
   in
   Arg.parse speclist (fun f -> ()) usage_msg;
+  templates_dir := Unix.realpath !templates_dir;
+  if not @@ String.is_empty !lua_prelude then
+    lua_prelude := Unix.realpath !lua_prelude;
+  print_endline !lua_prelude;
   let cfg : site_cfg = { url = !url; title = !site_title } in
   !preview |> Option.iter (fun p -> httpd cfg p ());
   process_dir cfg !templates_dir !source_dir !build_dir

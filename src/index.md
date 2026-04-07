@@ -1,7 +1,6 @@
 ---
 title: agle \\ alicia michael
 template: post.html 
-date: 2026-04-06
 ---
 
 I am Alicia, a static program analysis research engineer based in Meanjin
