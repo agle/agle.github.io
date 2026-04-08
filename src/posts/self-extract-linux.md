@@ -30,11 +30,14 @@ dir/
   main.exe
 ```
 
-With the contents of start.sh being:
+With the contents of start.sh being (`$USER_PWD` provides the invocation
+directory of the self-extracting script):
 
 ```bash
 #!/usr/bin/env bash
-LD_LIBRARY_PATH=libs ./main.exe
+FN="$(realpath main.exe)"
+export LD_LIBRARY_PATH=$(realpath lib)
+cd "$USER_PWD" && "$FN" $@
 ```
 
 Then run:

@@ -39,3 +39,6 @@ build: [
 ]
 dev-repo: "git+https://github.com/username/reponame.git"
 x-maintenance-intent: ["(latest)"]
+pin-depends: [
+  ["quickjs_eval.dev"  "https://github.com/agle/ocaml_quickjs.git"]
+]

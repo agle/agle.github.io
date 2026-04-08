@@ -74,7 +74,7 @@ let lua_push_page_meta st cfg m =
   in
   lua_push_table st tbl_data
 
-let lua_push_site_meta st cfg m =
+let lua_push_site_meta st cfg =
   let site_data =
     [
       ("url", `String cfg.url);
@@ -83,12 +83,6 @@ let lua_push_site_meta st cfg m =
     ]
   in
   lua_push_table st site_data
-
-let lua_set_meta_globals st cfg m =
-  lua_push_page_meta st cfg m;
-  Lua_api.Lua.setglobal st "page";
-  lua_push_site_meta st cfg m;
-  Lua_api.Lua.setglobal st "site"
 
 let body m =
   m.content () |> function
@@ -136,7 +130,7 @@ let gen_rss cfg (m : meta) (ms : meta list) =
   let b = Buffer.create 1024 in
   let f = Format.formatter_of_buffer b in
   Rss.print_channel f channel;
-  Buffer.to_bytes b |> Bytes.to_string
+  Buffer.to_bytes b |> Bytes.unsafe_to_string
 
 let read_file ic =
   let res = ref "" in
@@ -167,6 +161,34 @@ let lua_register_page_content st meta =
     1
   in
   Lua.register st "page_content" f
+
+let lua_register_cmarkit st =
+  let open Lua_api in
+  let f st =
+    let text = LuaL.checkstring st (-1) in
+    Lua.pop st 1;
+    let l =
+      Cmarkit.Doc.of_string ~heading_auto_ids:true ~strict:false text
+      |> Hilite_markdown.transform |> Katex.cmarkit_map_katex
+      |> Cmarkit_html.of_doc ~safe:false
+    in
+    Lua.pushstring st l;
+    1
+  in
+  Lua.register st "render_markdown" f
+
+let lua_register_texrender st =
+  let ctx = lazy (Katex.create ()) in
+  let open Lua_api in
+  let f st =
+    let text = LuaL.checkstring st (-1) in
+    Lua.pop st 1;
+    let l = Katex.eval_katex (Lazy.force ctx) text in
+    let l = Result.get_or ~default:"error" l in
+    Lua.pushstring st l;
+    1
+  in
+  Lua.register st "render_math" f
 
 let lua_register_metas_for_dir st cfg ms =
   let open Lua_api in
@@ -203,46 +225,94 @@ let lua_register_metas_for_dir st cfg ms =
   in
   Lua.register st "child_pages" f
 
+let lua_register_glob st cfg =
+  lua_register_cmarkit st;
+  lua_register_texrender st;
+  lua_push_site_meta st cfg;
+  Lua_api.Lua.setglobal st "site"
+
+let lua_block st cfg met metas inner_text =
+  let open Lua_api in
+  lua_push_page_meta st cfg met;
+  Lua_api.Lua.setglobal st "page";
+  lua_register_page_content st met;
+  lua_register_metas_for_dir st cfg metas;
+  let buf = lua_register_printer st in
+  (if not @@ String.is_empty !lua_prelude then
+     let r = LuaL.dofile st !lua_prelude in
+     if not r then print_endline "WARN: error in lua prelude.");
+  let r = LuaL.dostring st inner_text in
+  if not r then
+    print_endline ("WARN: Lua error in " ^ met.filename ^ ":" ^ inner_text);
+  let s = Buffer.to_bytes buf |> Bytes.to_string in
+  s
+
 let luify cfg (temp : string) (met : meta) metas : string =
   let open Lua_api in
   let st = LuaL.newstate () in
   LuaL.openlibs st;
+  lua_register_glob st cfg;
   let delim = Str.regexp {|%{\|\}%|} in
   let bgdeli = Str.regexp {|%\{|} in
   let n = Str.full_split delim temp in
 
-  let rec unpack acc xs =
+  let buf = Buffer.create (String.length temp) in
+
+  let rec unpack xs =
     match xs with
     | Str.Delim bg :: Str.Text inner_text :: rest
       when Str.string_match bgdeli bg 0 ->
-        let m = lua_set_meta_globals st cfg met in
-        lua_register_page_content st met;
-        lua_register_metas_for_dir st cfg metas;
-        let buf = lua_register_printer st in
-        (if not @@ String.is_empty !lua_prelude then
-           let r = LuaL.dofile st !lua_prelude in
-           if not r then print_endline "WARN: error in lua prelude.");
-        let r = LuaL.dostring st inner_text in
-        if not r then
-          print_endline ("WARN: Lua error in " ^ met.filename ^ ":" ^ inner_text);
-        let s = Buffer.to_bytes buf |> Bytes.to_string in
-        unpack (acc ^ s) rest
-    | Str.Text b :: rest -> unpack (acc ^ b) rest
-    | [] -> acc
-    | Str.Delim "}%" :: rest -> unpack acc rest
+        let s = lua_block st cfg met metas inner_text in
+        Buffer.add_string buf s;
+        unpack rest
+    | Str.Text b :: rest ->
+        Buffer.add_string buf b;
+        unpack rest
+    | [] -> ()
+    | Str.Delim "}%" :: rest -> unpack rest
     | Str.Delim x :: _ -> failwith ("unexpec " ^ x)
   in
-  unpack "" n
+  unpack n;
+  Buffer.to_bytes buf |> Bytes.unsafe_to_string
 
 let extension s : string =
   Filename.extension s |> fun e ->
   Option.get_or ~default:e @@ String.chop_prefix ~pre:"." e
 
+let lua_transform cfg met metas (doc : Cmarkit.Doc.t) =
+  let open Lua_api in
+  let st = LuaL.newstate () in
+  LuaL.openlibs st;
+  lua_register_glob st cfg;
+  let block _mapper (b : Cmarkit.Block.t) =
+    match b with
+    | Cmarkit.Block.Code_block (node, meta) -> (
+        let info =
+          Cmarkit.Block.Code_block.info_string node |> Option.map fst
+        in
+        let code =
+          Cmarkit.Block.Code_block.code node
+          |> List.map Cmarkit.Block_line.to_string
+          |> String.concat "\n"
+        in
+        match
+          Option.bind info Cmarkit.Block.Code_block.language_of_info_string
+        with
+        | Some ("runlua", _) | Some ("evallua", _) ->
+            let text = lua_block st cfg met metas code in
+            let h = Cmarkit.Block_line.list_of_string text in
+            `Map (Some (Cmarkit.Block.Html_block (h, meta)))
+        | _ -> `Map (Some b))
+    | _ -> `Default
+  in
+  let mapper = Cmarkit.Mapper.make ~block () in
+  Cmarkit.Mapper.map_doc mapper doc
+
 let drop_exn s : string =
   String.split_on_char '.' s |> List.rev |> List.tl |> List.rev
   |> String.concat "."
 
-let parse_m fs f =
+let parse_m cfg fs f =
   let ls = ref [] in
   let n = ref "" in
   while
@@ -266,18 +336,6 @@ let parse_m fs f =
   let m = List.map separate ls |> M.of_list in
   let content = read_file f in
   close_in f;
-  let do_md str =
-    Cmarkit.Doc.of_string ~heading_auto_ids:true ~strict:false str
-    |> Hilite_markdown.transform
-    |> Cmarkit_html.of_doc ~safe:false
-  in
-  let content () =
-    match extension fs with
-    | "md" -> `MDHtml (do_md content)
-    | "markdown" -> `MDHtml (do_md content)
-    | "html" -> `Xml (Cow.Html.of_string content)
-    | _ -> `Text content
-  in
   let filename = drop_exn fs in
   let template =
     M.find_opt "template" m |> function
@@ -292,20 +350,37 @@ let parse_m fs f =
       | "title", b -> false
       | _ -> true)
   in
-  {
-    name = M.find "title" m;
-    date = M.find_opt "date" m |> Option.map parsedate;
-    content;
-    template;
-    filename;
-    extra_frontmatter;
-  }
+  let m =
+    {
+      name = M.find "title" m;
+      date = M.find_opt "date" m |> Option.map parsedate;
+      content = (fun () -> `Text "");
+      template;
+      filename;
+      extra_frontmatter;
+    }
+  in
 
-let build fs =
+  let do_md str =
+    Cmarkit.Doc.of_string ~heading_auto_ids:true ~strict:false str
+    |> Hilite_markdown.transform |> Katex.cmarkit_map_katex
+    |> lua_transform cfg m M.empty
+    |> Cmarkit_html.of_doc ~safe:false
+  in
+  let content () =
+    match extension fs with
+    | "md" -> `MDHtml (do_md content)
+    | "markdown" -> `MDHtml (do_md content)
+    | "html" -> `Xml (Cow.Html.of_string content)
+    | _ -> `Text content
+  in
+  { m with content }
+
+let build cfg fs =
   let f = open_in fs in
   let n = ref (input_line f) in
   let filename = fs in
-  if String.equal !n "---" then parse_m fs f
+  if String.equal !n "---" then parse_m cfg fs f
   else (
     (* Meta that encodes direct copy *)
     close_in f;
@@ -343,7 +418,7 @@ let load_templs dir =
       (f, t))
   |> M.of_list
 
-let rec list_directory_rec_build dir : (string * meta list) list =
+let rec list_directory_rec_build cfg dir : (string * meta list) list =
   print_endline ("dir " ^ dir);
   if Sys.file_exists dir && Sys.is_directory dir then (
     let file_array =
@@ -355,11 +430,13 @@ let rec list_directory_rec_build dir : (string * meta list) list =
       file_array
       |> List.filter Sys.is_regular_file
       (*|> List.filter (compose not (String.starts_with ~prefix:".")) *)
-      |> List.map build
+      |> List.map (build cfg)
     in
     let dires = file_array |> List.filter Sys.is_directory in
     List.iter print_endline dires;
-    let dirs = List.concat_map (fun d -> list_directory_rec_build d) dires in
+    let dirs =
+      List.concat_map (fun d -> list_directory_rec_build cfg d) dires
+    in
     (dir, files) :: dirs)
   else []
 
@@ -378,7 +455,7 @@ let process_dir cfg temps indir outdir =
   M.iter (fun i _ -> print_endline ("template " ^ i)) temps;
   print_endline "";
   Sys.chdir indir;
-  let built = list_directory_rec_build "." in
+  let built = list_directory_rec_build cfg "." in
   let bm = built |> M.of_list in
   print_endline "";
   print_endline "done build, outputting:";

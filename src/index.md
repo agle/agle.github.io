@@ -63,3 +63,4 @@ Earlier, interning at Oracle Labs Brisbane I worked on adding a (Souffle)
 datalog-based policy language and checker to the
 [macaron](https://github.com/oracle/macaron) software supply chain security
 posture analyser.
+
