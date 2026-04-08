@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-site:
+  build:
     name: Build
     runs-on: ubuntu-latest
 
@@ -22,52 +22,30 @@ jobs:
       - name: Checkout tree
         uses: actions/checkout@v4
 
-      - name: Set-up OCaml
-        uses: ocaml/setup-ocaml@v3
+
+      - name: Build site
+        run: make
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          ocaml-compiler: 5.4.0
+          path: docs
 
-      - name: Install dependencies
-        run: |
-          opam option --global 'archive-mirrors+="https://opam.ocaml.org/cache"'
-          opam install . --deps-only
-          opam exec -- dune build --profile=release
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
 
+    needs: build-site
 
-      - name: build package
-        run: |
-          bash scripts/mkrel.sh
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sg-main
-          path: sg
+    permissions:
+      id-token: write
+      pages: write
 
-
-#      - name: Build site
-#        run: |
-#          opam exec --  dune exec -- sb --url "https://agle.github.io"  --title agle -o public
-#
-#      - name: Upload artifact
-#        uses: actions/upload-pages-artifact@v3
-#        with:
-#          path: public
-#
-#  deploy-odoc:
-#    name: Deploy to GitHub Pages
-#    runs-on: ubuntu-latest
-#    if: ${{ github.ref == 'refs/heads/main' }}
-#
-#    needs: build-site
-#
-#    environment:
-#      name: github-pages
-#      url: ${{ steps.deployment.outputs.page_url }}
-#
-#    permissions:
-#      id-token: write
-#      pages: write
-#
-#    steps:
-#      - uses: actions/deploy-pages@v4
-#        id: deployment
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
