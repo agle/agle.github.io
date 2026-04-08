@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build
+    name: build
     runs-on: ubuntu-latest
 
     steps:
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/main' }}
 
-    needs: build-site
+    needs: build
 
     environment:
       name: github-pages
