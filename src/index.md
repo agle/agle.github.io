@@ -25,9 +25,9 @@ only hope to emulate.
 
 #### Publications
 
-- Sadra Bayat Tork, Nicholas Coughlin, Alicia Michael, James Tobler and Kirsten Winter. Data Structure Analysis for Binaries. TACAS 2026.
+- Tork, S.B., Coughlin, N., Michael, A., Tobler, J., Winter, K. (2026). Data Structure Analysis for Binaries. In: Junges, S., Katz, G. (eds) Tools and Algorithms for the Construction and Analysis of Systems. TACAS 2026. Lecture Notes in Computer Science, vol 16506. Springer, Cham. https://doi.org/10.1007/978-3-032-22749-2_12
 
-- Nicholas Coughlin, Alicia Michael, Kait Lam,. (2025). Lift-Offline: Instruction Lifter Generators. In: Giacobazzi, R., Gorla, A. (eds) Static Analysis. SAS 2024. Lecture Notes in Computer Science, vol 14995. Springer, Cham. [https://doi.org/10.1007/978-3-031-74776-2_4](https://doi.org/10.1007/978-3-031-74776-2_4)
+- Coughlin, N., Michael, A., Lam, K. (2025). Lift-Offline: Instruction Lifter Generators. In: Giacobazzi, R., Gorla, A. (eds) Static Analysis. SAS 2024. Lecture Notes in Computer Science, vol 14995. Springer, Cham. https://doi.org/10.1007/978-3-031-74776-2_4
 
 #### Talks
 
