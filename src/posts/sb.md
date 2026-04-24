@@ -13,7 +13,7 @@ template: post.html
 
 For whatever reason proper web design is not something I've ever had the patience to learn properly, this includes "real" website generators like hugo, jekyll and the millions of others. Every time I've made a website its been some html or markdown hacked together with pandoc and some python or makefiles.
 
-At one point I wrote the build script in C++, then another time in C, in order to directly link to the fastest markdown implementations. These basic static site generators always tend to have a basic struture:
+At one point I wrote the build script in C++, then another time in C, in order to directly link to the fastest markdown implementations. These static site generators always tend to have a basic struture:
 
 
 1. Traverse some directory tree and discover the content and templating rules
@@ -31,7 +31,7 @@ The opinion I have on my websites is that generally they shouldn't need javascri
 
 Thankfully there's a reasonably developed ecosystem of web focussed libraries in OCaml so I can just plug things together in a relatively short script (including a robust markdown library with good traversal apis).
 
-Unfortunately the problems I like to solve again led me to writing the minimal OCaml bindings for quickjs so I could pre-run the $KaTeX$ math renderer. Then I decided I should make the templating based on lua. This is maximally flexible if you're willing to be quite hacky.
+Unfortunately the problems I like to solve again led me to writing the minimal OCaml bindings for quickjs so I could pre-run the $\KaTeX$ math renderer. Then I decided I should make the templating based on lua. This is maximally flexible if you're willing to be quite hacky.
 
 Anyway, this website is built with [site build](https://github.com/agle/sb). Its a 600 line OCaml program with:
 
