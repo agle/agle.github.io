@@ -4,6 +4,10 @@ date: 2026-04-24
 template: post.html
 ---
 
+
+<br>
+
+
 > The perfect website builder has never been created, it is up to you to
 > build it.
 
@@ -17,15 +21,17 @@ At one point I wrote the build script in C++, then another time in C, in order t
 3. Inject the content into some site templates and write the tree to disk.
 
   
-I think there's a good argument for keeping it this basic and understandable. Of course there are many projects that take this idea and run it to its logical conclusion in whatever direction. The logical conclusion ranging from,
-"your site is actually a single json file" to 
-"your website is actually profunctor".
+I think there's a good argument for keeping it this basic and understandable.
+On the other hand there are many projects that take this general observation
+and run it to its logical conclusion in whatever direction. The logical
+conclusion ranging from, "your website is actually a single json file" to "your
+website is actually profunctor".
 
-The opinion I have on my websites is that generally they shouldn't need javascript. Despite this I want some nice features sometimes like math rendering and syntax highlighting.
+The opinion I have on my websites is that generally they shouldn't need javascript. Despite this I want some features sometimes like math rendering and syntax highlighting.
 
-Thankfully there's a reasonably nice ecosystem of web focussed libraries in OCaml so I can just plug things together in a relatively short script (including a nice markdown library with good traversal apis).
+Thankfully there's a reasonably developed ecosystem of web focussed libraries in OCaml so I can just plug things together in a relatively short script (including a robust markdown library with good traversal apis).
 
-Unfortunately the problems I like to solve again led me to writing the minimal OCaml bindings for quickjs so I could pre-run the KaTeX math renderer. Then I decided I should make the templating based on lua. This is maximally flexible if you're willing to be quite hacky.
+Unfortunately the problems I like to solve again led me to writing the minimal OCaml bindings for quickjs so I could pre-run the $KaTeX$ math renderer. Then I decided I should make the templating based on lua. This is maximally flexible if you're willing to be quite hacky.
 
 Anyway, this website is built with [site build](https://github.com/agle/sb). Its a 600 line OCaml program with:
 
@@ -40,7 +46,7 @@ Its distributed as a [self-extracting tarball](https://agle.github.io/posts/self
 
 Lua templates are quite nice to be honest, if perhaps a bit inscrutible the way I've hacked it together[^1]. The post list looks like this:
 
-[^1]: Its also cool that Simon Cruanes released [nice lua generators](https://github.com/c-cube/ezlua/) in the time since I wrote this, which would definitely clean up the implementation a bit.
+[^1]: Its also cool that Simon Cruanes released [lua generators](https://github.com/c-cube/ezlua/) in the time since I wrote this, which would definitely clean up the implementation a bit.
 
 
 ```lua
