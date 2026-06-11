@@ -1,5 +1,5 @@
 ---
-title: Filesystem-dependent metaprgramming in Scala3
+title: Filesystem-dependent metaprogramming in Scala3
 date: 2026-06-12
 template: post.html
 ---
