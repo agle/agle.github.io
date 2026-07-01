@@ -3,8 +3,11 @@ title: agle \\ alicia michael
 template: post.html 
 ---
 
+<img class="pfpimg" src="/allie.png"  alt=pfp>
+
 I am Alicia, a static program analysis research engineer based in Meanjin
 (Brisbane), Australia.
+
 
 #### Research Interests
 

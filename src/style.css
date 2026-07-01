@@ -330,6 +330,17 @@ hr:after {
   border-style:none;
 }
 
+.pfpimg {
+  width: 10em;
+  display: block;
+  float:right;
+  margin: 1em;
+}
+
+img {
+  max-width: 90%
+}
+
 hr {
   border-style: none;
   text-align: center;
