@@ -36,6 +36,8 @@ only hope to emulate.
 
 #### Talks
 
+- Validated Binary Decompilation Without Tears
+  - September 2026, FMCAD, Graz Austria (Remote)
 - Boogie-Backed Translation Validation for Decompilation 
   - June 2025, FMOz @ The University of Queensland
 - Procedure-Local Rely-Guarantee Specifications for Binaries
