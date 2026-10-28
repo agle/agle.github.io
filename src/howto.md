@@ -3,14 +3,18 @@ title: how-to
 template: post.html
 ---
 
+How to guides for computing.
+
+
 ### Minimise the size of source programs that produce a compiler/analyser bug
 
-```
+```sh
 c-reduce --not-c
 ```
 
 and the rewrite [cvise](https://github.com/marxin/cvise/), available in repos.
 
+[https://bernsteinbear.com/blog/creduce/](https://bernsteinbear.com/blog/creduce/)
 
 ### Figure out where approximately a program is stuck in an infinite loop
 
